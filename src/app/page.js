@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { jsPDF } from "jspdf"; // IMPORT THE PDF TOOL
+import { jsPDF } from "jspdf";
 
 const GENRE_LIST = [
   "Action", "Adventure", "Comedy", "Drama", 
@@ -15,6 +15,12 @@ export default function Home() {
   const [episodes, setEpisodes] = useState(7); 
   const [loading, setLoading] = useState(false);
   const [seriesData, setSeriesData] = useState(null);
+
+  // --- PAYMENT & EMAIL STATES ---
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [email, setEmail] = useState(""); // NEW: Holds the user's email
 
   const toggleGenre = (genre) => {
     if (selectedGenres.includes(genre)) {
@@ -36,7 +42,8 @@ export default function Home() {
     }
     setLoading(true);
     setSeriesData(null);
-
+    setIsUnlocked(false);
+    
     try {
       const response = await fetch("/api/generate", {
         method: "POST",
@@ -55,87 +62,190 @@ export default function Home() {
     }
   };
 
-  // --- NEW: PDF GENERATION FUNCTION ---
-  const handleDownloadPDF = () => {
+  // --- NEW: HANDLE EMAIL & FAKE PAYMENT ---
+  const handleFakePayment = async () => {
+    // 1. Validate Email
+    if (!email || !email.includes("@")) {
+      alert("Please enter a valid email address to unlock.");
+      return;
+    }
+
+    setProcessingPayment(true);
+    
+    // 2. Send Email to your "Recorder" API (Background)
+    try {
+      await fetch("/api/record-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, game }),
+      });
+    } catch (err) {
+      console.error("Failed to record email", err);
+    }
+
+    // 3. Simulate Payment Delay
+    setTimeout(() => {
+      setProcessingPayment(false);
+      setIsUnlocked(true);
+      setShowPaywall(false);
+      
+      generatePDF(); 
+      
+      alert(`Success! sent to ${email}. (Test Mode: No charge made)`);
+    }, 2000);
+  };
+
+  const handleDownloadClick = () => {
+    if (isUnlocked) {
+      generatePDF();
+    } else {
+      setShowPaywall(true);
+    }
+  };
+
+  const generatePDF = () => {
     if (!seriesData) return;
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 20;
     const contentWidth = pageWidth - (margin * 2);
-    let yPos = 20; // Vertical cursor position
+    let yPos = 20;
 
-    // 1. HEADER (Title)
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
-    doc.setTextColor(40, 40, 255); // Blue color
+    doc.setTextColor(40, 40, 255);
     const titleLines = doc.splitTextToSize(seriesData.series_title, contentWidth);
     doc.text(titleLines, margin, yPos);
     yPos += (titleLines.length * 10) + 10;
 
-    // 2. LOGLINE
     doc.setFont("helvetica", "italic");
     doc.setFontSize(12);
-    doc.setTextColor(80, 80, 80); // Gray color
+    doc.setTextColor(80, 80, 80);
     const loglineLines = doc.splitTextToSize(`"${seriesData.series_logline}"`, contentWidth);
     doc.text(loglineLines, margin, yPos);
     yPos += (loglineLines.length * 7) + 15;
 
-    // Divider Line
     doc.setDrawColor(200, 200, 200);
     doc.line(margin, yPos, pageWidth - margin, yPos);
     yPos += 15;
 
-    // 3. EPISODES LOOP
     doc.setFont("helvetica", "normal");
     doc.setTextColor(0, 0, 0);
 
     seriesData.episodes.forEach((ep) => {
-      // Check if we need a new page (if near bottom)
       if (yPos > 250) {
         doc.addPage();
         yPos = 20;
       }
-
-      // Episode Header
       doc.setFont("helvetica", "bold");
       doc.setFontSize(14);
       doc.text(`Episode ${ep.episode_number}: ${ep.title}`, margin, yPos);
       yPos += 8;
 
-      // Visual Concept
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
-      doc.setTextColor(100, 100, 100); // Gray
+      doc.setTextColor(100, 100, 100);
       doc.text("THUMBNAIL CONCEPT:", margin, yPos);
       yPos += 5;
 
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(0, 0, 0); // Black
+      doc.setTextColor(0, 0, 0);
       const visualLines = doc.splitTextToSize(ep.visual_concept, contentWidth);
       doc.text(visualLines, margin, yPos);
       yPos += (visualLines.length * 5) + 5;
 
-      // Story Hook
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(100, 100, 100); // Gray
+      doc.setTextColor(100, 100, 100);
       doc.text("STORY HOOK:", margin, yPos);
       yPos += 5;
 
       doc.setFont("helvetica", "normal");
-      doc.setTextColor(0, 0, 0); // Black
+      doc.setTextColor(0, 0, 0);
       const storyLines = doc.splitTextToSize(ep.story_beat, contentWidth);
       doc.text(storyLines, margin, yPos);
-      yPos += (storyLines.length * 5) + 15; // Extra space between episodes
+      yPos += (storyLines.length * 5) + 15;
     });
 
-    // Save the file
     doc.save(`${seriesData.series_title.replace(/\s+/g, '_')}_Bible.pdf`);
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white p-8">
+    <div className="min-h-screen bg-gray-950 text-white p-8 relative">
       
+      {/* --- EMAIL & PAYWALL MODAL --- */}
+      {showPaywall && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-8 max-w-md w-full shadow-2xl relative animate-fade-in-up">
+            
+            <button 
+              onClick={() => setShowPaywall(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white"
+            >
+              ✕
+            </button>
+
+            <div className="text-center">
+              <div className="w-16 h-16 bg-blue-600/20 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+              </div>
+              
+              <h3 className="text-2xl font-bold text-white mb-2">Unlock Series Bible</h3>
+              <p className="text-gray-400 mb-6">
+                Enter your email to download the full blueprint.
+              </p>
+
+              <div className="bg-gray-800 rounded-lg p-4 mb-6 text-left">
+                {/* --- NEW: EMAIL INPUT --- */}
+                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">
+                  Email Address
+                </label>
+                <input 
+                  type="email" 
+                  placeholder="name@example.com"
+                  className="w-full p-3 rounded bg-gray-700 border border-gray-600 text-white focus:ring-2 focus:ring-blue-500 outline-none mb-4"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-300">Price</span>
+                  <span className="text-white font-bold">$2.99</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-green-400">Beta Discount</span>
+                  <span className="text-green-400">-$2.99</span>
+                </div>
+                <div className="h-px bg-gray-700 my-3"></div>
+                <div className="flex justify-between items-center text-lg font-bold">
+                  <span>Total</span>
+                  <span>$0.00</span> 
+                </div>
+              </div>
+
+              <button
+                onClick={handleFakePayment}
+                disabled={processingPayment}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-lg transition-all flex justify-center items-center"
+              >
+                {processingPayment ? (
+                  <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full mr-2"></span>
+                ) : (
+                  "Unlock Now"
+                )}
+              </button>
+              
+              <p className="text-xs text-gray-500 mt-4">
+                We'll email you the PDF instantly.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MAIN APP CONTENT --- */}
       <div className="max-w-3xl mx-auto flex flex-col items-center justify-center mb-12">
         <h1 className="text-5xl font-extrabold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">
           Series Architect
@@ -143,8 +253,6 @@ export default function Home() {
         <p className="text-gray-400 text-lg">Build your next viral playlist in seconds.</p>
 
         <div className="w-full max-w-xl mt-8 space-y-6 bg-gray-900 p-6 rounded-2xl border border-gray-800">
-          
-          {/* INPUTS */}
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-2">Game Name</label>
             <input
@@ -194,7 +302,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* RESULTS SECTION */}
       {seriesData && (
         <div className="max-w-5xl mx-auto animate-fade-in-up pb-20">
           <div className="mb-10 text-center p-8 bg-gradient-to-br from-gray-900 to-blue-900/20 rounded-3xl border border-blue-500/30">
@@ -207,15 +314,25 @@ export default function Home() {
                ))}
             </div>
 
-            {/* --- NEW DOWNLOAD BUTTON --- */}
             <button 
-              onClick={handleDownloadPDF}
-              className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-bold rounded-full shadow-lg hover:shadow-green-500/20 transition-all flex items-center gap-2 mx-auto"
+              onClick={handleDownloadClick}
+              className={`px-6 py-2 ${isUnlocked ? "bg-green-600 hover:bg-green-500" : "bg-blue-600 hover:bg-blue-500"} text-white font-bold rounded-full shadow-lg transition-all flex items-center gap-2 mx-auto`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-              </svg>
-              Download Series Bible (PDF)
+              {isUnlocked ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download Series Bible (PDF)
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                  </svg>
+                  Unlock Series Bible
+                </>
+              )}
             </button>
           </div>
 
