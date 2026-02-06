@@ -257,7 +257,7 @@ export default function Home() {
             <label className="block text-sm font-medium text-gray-400 mb-2">Game Name</label>
             <input
               type="text"
-              placeholder="e.g. Minecraft, Elden Ring"
+              placeholder="e.g. Minecraft, Elden Ring, GTA"
               className="w-full p-3 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-2 focus:ring-blue-500 outline-none"
               value={game}
               onChange={(e) => setGame(e.target.value)}
